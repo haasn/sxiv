@@ -5,11 +5,11 @@ MANPREFIX := $(PREFIX)/share/man
 
 CC        ?= gcc
 CFLAGS    += -std=c99 -Wall -pedantic
-CPPFLAGS  += -I$(PREFIX)/include -D_XOPEN_SOURCE=500 -DHAVE_LIBEXIF -DHAVE_GIFLIB -DHAVE_LCMS
+CPPFLAGS  += -I$(PREFIX)/include -D_XOPEN_SOURCE=500 -DHAVE_LIBEXIF -DHAVE_GIFLIB -DHAVE_CMS
 LDFLAGS   += -L$(PREFIX)/lib
-LIBS      := -lX11 -lImlib2 -lexif -lgif -llcms2
+LIBS      := -lX11 -lImlib2 -lexif -lgif -llcms2 -lz
 
-SRC := commands.c image.c main.c options.c thumbs.c util.c window.c
+SRC := colorspace.c commands.c image.c main.c options.c thumbs.c util.c window.c
 DEP := $(SRC:.c=.d)
 OBJ := $(SRC:.c=.o)
 

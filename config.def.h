@@ -50,6 +50,9 @@ static const bool ANTI_ALIAS = true;
  */
 static const bool ALPHA_LAYER = false;
 
+/* path to display's ICC profile for color management */
+static const char * const DISPLAY_PROFILE = "";
+
 #endif
 #ifdef _THUMBS_CONFIG
 

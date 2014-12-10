@@ -16,6 +16,9 @@ LIBS      := -lX11 -lImlib2
 # libexif: jpeg auto-orientation, exif thumbnails
 	CPPFLAGS += -DHAVE_LIBEXIF
 	LIBS     += -lexif
+# littlecms2: color management support
+	CPPFLAGS += -DHAVE_LCMS
+	LIBS	 += -llcms2
 
 
 .PHONY: clean install uninstall

@@ -16,14 +16,14 @@ LIBS      := -lX11 -lImlib2
 # libexif: jpeg auto-orientation, exif thumbnails
 	CPPFLAGS += -DHAVE_LIBEXIF
 	LIBS     += -lexif
-# littlecms2: color management support
-	CPPFLAGS += -DHAVE_LCMS
-	LIBS	 += -llcms2
+# littlecms2 and zlib: color management support
+	CPPFLAGS += -DHAVE_CMS
+	LIBS	 += -llcms2 -lz
 
 
 .PHONY: clean install uninstall
 
-SRC := commands.c image.c main.c options.c thumbs.c util.c window.c
+SRC := colorspace.c commands.c image.c main.c options.c thumbs.c util.c window.c
 DEP := $(SRC:.c=.d)
 OBJ := $(SRC:.c=.o)
 

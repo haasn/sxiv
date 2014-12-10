@@ -18,15 +18,18 @@
 
 #include "types.h"
 
-#if HAVE_CMS
+#include <arpa/inet.h>
+#include <fcntl.h>
+#include <setjmp.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
-#include <fcntl.h>
-#include <unistd.h>
 #include <string.h>
-#include <arpa/inet.h>
+#include <unistd.h>
 
+#include "iccjpeg/iccjpeg.h"
+#include <jpeglib.h>
 #include <lcms2.h>
 #include <libexif/exif-data.h>
 #include <zlib.h>
@@ -73,6 +76,12 @@ static char *png_inflate(const char *input, int inlen, int *outlen) {
 				return NULL;
 		}
 	}
+}
+
+void handle_jpeg_error (j_common_ptr cinfo)
+{
+	// Just jump back to where we left off and clean up
+	longjmp(((struct { struct jpeg_error_mgr mgr; jmp_buf cleanup; } *) cinfo->err)->cleanup, 1);
 }
 
 cmsHPROFILE img_get_colorspace(const fileinfo_t *file) {
@@ -192,7 +201,32 @@ cmsHPROFILE img_get_colorspace(const fileinfo_t *file) {
 	}
 
 	// Try getting profile info with libjpeg
-	// TODO
+	struct jpeg_decompress_struct cinfo;
+	struct { struct jpeg_error_mgr mgr; jmp_buf cleanup; } jerr;
+	cinfo.err = jpeg_std_error(&jerr.mgr);
+	jerr.mgr.error_exit = handle_jpeg_error; // This jumps back to here
+
+	if (setjmp(jerr.cleanup)) {
+		// If we get here, it's due to a fatal error in libjpeg
+		jpeg_destroy_decompress(&cinfo);
+		goto end;
+	}
+
+	jpeg_create_decompress(&cinfo);
+	jpeg_mem_src(&cinfo, (unsigned char *) data, len);
+	setup_read_icc_profile(&cinfo);
+	jpeg_read_header(&cinfo, FALSE);
+
+	unsigned char *buf;
+	unsigned int outlen;
+
+	if (read_icc_profile(&cinfo, &buf, &outlen)) {
+		// ICC profile found, use it
+		res = cmsOpenProfileFromMem(buf, outlen);
+		free(buf);
+	}
+
+	jpeg_destroy_decompress(&cinfo);
 
 end:
 	munmap((void *) data, len);
@@ -201,6 +235,6 @@ end:
 	// Fall back to sRGB as a last resort if all else fails
 	if (!res)
 		res = cmsCreate_sRGBProfile();
+
 	return res;
 }
-#endif

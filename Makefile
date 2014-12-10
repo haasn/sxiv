@@ -9,6 +9,8 @@ CPPFLAGS  += -I$(PREFIX)/include -D_XOPEN_SOURCE=500
 LDFLAGS   += -L$(PREFIX)/lib
 LIBS      := -lX11 -lImlib2
 
+SRC       := commands.c image.c main.c options.c thumbs.c util.c window.c
+
 # optional dependencies:
 # giflib: gif animations
 	CPPFLAGS += -DHAVE_GIFLIB
@@ -16,14 +18,14 @@ LIBS      := -lX11 -lImlib2
 # libexif: jpeg auto-orientation, exif thumbnails
 	CPPFLAGS += -DHAVE_LIBEXIF
 	LIBS     += -lexif
-# littlecms2 and zlib: color management support
+# littlecms2, zlib and libjpeg: color management support
 	CPPFLAGS += -DHAVE_CMS
-	LIBS	 += -llcms2 -lz
+	LIBS	 += -llcms2 -lz -ljpeg
+	SRC	 += colorspace.c iccjpeg/iccjpeg.c
 
 
 .PHONY: clean install uninstall
 
-SRC := colorspace.c commands.c image.c main.c options.c thumbs.c util.c window.c
 DEP := $(SRC:.c=.d)
 OBJ := $(SRC:.c=.o)
 

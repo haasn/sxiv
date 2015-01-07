@@ -128,7 +128,8 @@ void check_add_file(char *filename, bool given)
 
 	if (fileidx == filecnt) {
 		filecnt *= 2;
-		files = (fileinfo_t*) s_realloc(files, filecnt * sizeof(fileinfo_t));
+		files = s_realloc(files, filecnt * sizeof(*files));
+		memset(&files[filecnt/2], 0, filecnt/2 * sizeof(*files));
 	}
 
 #if defined _BSD_SOURCE || defined _XOPEN_SOURCE && \
@@ -149,7 +150,6 @@ void check_add_file(char *filename, bool given)
 	}
 #endif
 
-	files[fileidx].warn = given;
 	files[fileidx].name = s_strdup(filename);
 	if (files[fileidx].path == NULL)
 		files[fileidx].path = files[fileidx].name;
@@ -157,6 +157,8 @@ void check_add_file(char *filename, bool given)
 		files[fileidx].base = ++bn;
 	else
 		files[fileidx].base = files[fileidx].name;
+	if (given)
+		files[fileidx].flags |= FF_WARN;
 	fileidx++;
 }
 
@@ -171,7 +173,7 @@ void remove_file(int n, bool manual)
 		cleanup();
 		exit(manual ? EXIT_SUCCESS : EXIT_FAILURE);
 	}
-	if (files[n].marked)
+	if (files[n].flags & FF_MARK)
 		markcnt--;
 
 	if (files[n].path != files[n].name)
@@ -335,7 +337,7 @@ void load_image(int new)
 		else if (new > 0 && new < fileidx)
 			new--;
 	}
-	files[new].warn = false;
+	files[new].flags &= ~FF_WARN;
 	fileidx = current = new;
 
 	info.open = false;
@@ -378,12 +380,15 @@ void update_info(void)
 	if (win.bar.h == 0)
 		return;
 	for (fw = 0, i = filecnt; i > 0; fw++, i /= 10);
-	mark = files[fileidx].marked ? "* " : "";
+	mark = files[fileidx].flags & FF_MARK ? "* " : "";
 	l->p = l->buf;
 	r->p = r->buf;
 	if (mode == MODE_THUMB) {
 		if (tns.loadnext < tns.end) {
-			bar_put(l, "Loading... %0*d", fw, MAX(tns.loadnext, 1));
+			bar_put(l, "Loading... %0*d", fw, tns.loadnext + 1);
+			ow_info = false;
+		} else if (tns.initnext < filecnt) {
+			bar_put(l, "Caching... %0*d", fw, tns.initnext + 1);
 			ow_info = false;
 		} else {
 			ow_info = true;
@@ -451,7 +456,7 @@ void reset_cursor(void)
 			}
 		}
 	} else {
-		if (tns.loadnext < tns.end)
+		if (tns.loadnext < tns.end || tns.initnext < filecnt)
 			cursor = CURSOR_WATCH;
 		else
 			cursor = CURSOR_ARROW;
@@ -535,7 +540,7 @@ void run_key_handler(const char *key, unsigned int mask)
 	}
 
 	for (f = i = 0; f < fcnt; i++) {
-		if ((marked && files[i].marked) || (!marked && i == fileidx)) {
+		if ((marked && (files[i].flags & FF_MARK)) || (!marked && i == fileidx)) {
 			stat(files[i].path, &oldst[f]);
 			fprintf(pfs, "%s\n", files[i].name);
 			f++;
@@ -548,7 +553,7 @@ void run_key_handler(const char *key, unsigned int mask)
 		warn("key handler exited with non-zero return value: %d", retval);
 
 	for (f = i = 0; f < fcnt; i++) {
-		if ((marked && files[i].marked) || (!marked && i == fileidx)) {
+		if ((marked && (files[i].flags & FF_MARK)) || (!marked && i == fileidx)) {
 			if (stat(files[i].path, &st) != 0 ||
 				  memcmp(&oldst[f].st_mtime, &st.st_mtime, sizeof(st.st_mtime)) != 0)
 			{
@@ -670,9 +675,9 @@ void on_buttonpress(XButtonEvent *bev)
 				break;
 			case Button3:
 				if ((sel = tns_translate(&tns, bev->x, bev->y)) >= 0) {
-					files[sel].marked = !files[sel].marked;
-					markcnt += files[sel].marked ? 1 : -1;
-					tns_mark(&tns, sel, files[sel].marked);
+					files[sel].flags ^= FF_MARK;
+					markcnt += files[sel].flags & FF_MARK ? 1 : -1;
+					tns_mark(&tns, sel, !!(files[sel].flags & FF_MARK));
 					redraw();
 				}
 				break;
@@ -692,26 +697,29 @@ void run(void)
 	int xfd;
 	fd_set fds;
 	struct timeval timeout;
-	bool discard, load_thumb, to_set;
+	bool discard, init_thumb, load_thumb, to_set;
 	XEvent ev, nextev;
 
 	while (true) {
 		to_set = check_timeouts(&timeout);
+		init_thumb = mode == MODE_THUMB && tns.initnext < filecnt;
 		load_thumb = mode == MODE_THUMB && tns.loadnext < tns.end;
 
-		if ((load_thumb || to_set || info.fd != -1) &&
+		if ((init_thumb || load_thumb || to_set || info.fd != -1) &&
 		    XPending(win.env.dpy) == 0)
 		{
 			if (load_thumb) {
 				set_timeout(redraw, TO_REDRAW_THUMBS, false);
-				if (!tns_load(&tns, tns.loadnext, false)) {
+				if (!tns_load(&tns, tns.loadnext, false, false)) {
 					remove_file(tns.loadnext, false);
 					tns.dirty = true;
 				}
-				while (tns.loadnext < tns.end && tns.thumbs[tns.loadnext].im != NULL)
-					tns.loadnext++;
 				if (tns.loadnext >= tns.end)
 					redraw();
+			} else if (init_thumb) {
+				set_timeout(redraw, TO_REDRAW_THUMBS, false);
+				if (!tns_load(&tns, tns.initnext, false, true))
+					remove_file(tns.initnext, false);
 			} else {
 				xfd = ConnectionNumber(win.env.dpy);
 				FD_ZERO(&fds);
@@ -818,7 +826,8 @@ int main(int argc, char **argv)
 	else
 		filecnt = options->filecnt;
 
-	files = (fileinfo_t*) s_malloc(filecnt * sizeof(fileinfo_t));
+	files = s_malloc(filecnt * sizeof(*files));
+	memset(files, 0, filecnt * sizeof(*files));
 	fileidx = 0;
 
 	if (options->from_stdin) {
@@ -896,8 +905,8 @@ int main(int argc, char **argv)
 	if (options->thumb_mode) {
 		mode = MODE_THUMB;
 		tns_init(&tns, files, &filecnt, &fileidx, &win);
-		while (!tns_load(&tns, 0, false))
-			remove_file(0, false);
+		while (!tns_load(&tns, fileidx, false, false))
+			remove_file(fileidx, false);
 	} else {
 		mode = MODE_IMAGE;
 		tns.thumbs = NULL;

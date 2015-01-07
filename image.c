@@ -51,22 +51,6 @@ static int zoomdiff(float z1, float z2)
 	return (int) (z1 * 1000.0 - z2 * 1000.0);
 }
 
-static void img_apply_gamma(img_t *img)
-{
-	if (img == NULL || img->im == NULL || img->cmod == NULL)
-		return;
-	
-	if (img->gamma == 0) {
-		imlib_context_set_color_modifier(NULL);
-	} else {
-		double range = img->gamma <= 0 ? 1.0 : GAMMA_MAX - 1.0;
-
-		imlib_context_set_color_modifier(img->cmod);
-		imlib_reset_color_modifier();
-		imlib_modify_color_modifier_gamma(1.0 + img->gamma * (range / GAMMA_RANGE));
-	}
-}
-
 #ifdef HAVE_CMS
 static void img_apply_cms(const fileinfo_t *file)
 {
@@ -123,8 +107,9 @@ void img_init(img_t *img, win_t *win)
 	img->multi.length = 0;
 
 	img->cmod = imlib_create_color_modifier();
+	imlib_context_set_color_modifier(img->cmod);
 	img->gamma = MIN(MAX(options->gamma, -GAMMA_RANGE), GAMMA_RANGE);
-	
+
 	img->ss.on = options->slideshow > 0;
 	img->ss.delay = options->slideshow > 0 ? options->slideshow : SLIDESHOW_DELAY;
 }
@@ -326,7 +311,7 @@ bool img_load_gif(img_t *img, const fileinfo_t *file)
 	DGifCloseFile(gif);
 #endif
 
-	if (err && file->warn)
+	if (err && (file->flags & FF_WARN))
 		warn("corrupted gif file: %s", file->name);
 
 	if (img->multi.cnt > 1) {
@@ -355,7 +340,7 @@ bool img_load(img_t *img, const fileinfo_t *file)
 	if (access(file->path, R_OK) < 0 ||
 	    (img->im = imlib_load_image(file->path)) == NULL)
 	{
-		if (file->warn)
+		if (file->flags & FF_WARN)
 			warn("could not open image: %s", file->name);
 		return false;
 	}
@@ -373,7 +358,6 @@ bool img_load(img_t *img, const fileinfo_t *file)
 			img_load_gif(img, file);
 #endif
 	}
-	img_apply_gamma(img);
 
 #if HAVE_CMS
 	img_apply_cms(file);
@@ -409,9 +393,6 @@ void img_close(img_t *img, bool decache)
 			imlib_free_image();
 		img->im = NULL;
 	}
-
-	if (img->cmod)
-		imlib_context_set_color_modifier(NULL);
 }
 
 void img_check_pan(img_t *img, bool moved)
@@ -567,10 +548,8 @@ void img_render(img_t *img)
 		imlib_blend_image_onto_image(img->im, 0, sx, sy, sw, sh, 0, 0, dw, dh);
 		imlib_context_set_color_modifier(NULL);
 		imlib_render_image_on_drawable(dx, dy);
-
 		imlib_free_image();
-		if (img->gamma != 0)
-			imlib_context_set_color_modifier(img->cmod);
+		imlib_context_set_color_modifier(img->cmod);
 	} else {
 		imlib_render_image_part_on_drawable_at_size(sx, sy, sw, sh, dx, dy, dw, dh);
 	}
@@ -809,20 +788,23 @@ bool img_change_gamma(img_t *img, int d)
 	 * d > 0: increase gamma
 	 */
 	int gamma;
+	double range;
 
-	if (img == NULL || img->im == NULL)
+	if (img == NULL)
 		return false;
 
 	if (d == 0)
 		gamma = 0;
-	else if (d < 0)
-		gamma = MAX(-GAMMA_RANGE, img->gamma - 1);
 	else
-		gamma = MIN(+GAMMA_RANGE, img->gamma + 1);
+		gamma = MIN(MAX(img->gamma + d, -GAMMA_RANGE), GAMMA_RANGE);
 
 	if (img->gamma != gamma) {
+		imlib_reset_color_modifier();
+		if (gamma != 0) {
+			range = gamma <= 0 ? 1.0 : GAMMA_MAX - 1.0;
+			imlib_modify_color_modifier_gamma(1.0 + gamma * (range / GAMMA_RANGE));
+		}
 		img->gamma = gamma;
-		img_apply_gamma(img);
 		img->dirty = true;
 		return true;
 	} else {

@@ -152,7 +152,7 @@ void tns_clean_cache(tns_t *tns)
 }
 
 
-void tns_init(tns_t *tns, const fileinfo_t *files, const int *cnt, int *sel,
+void tns_init(tns_t *tns, fileinfo_t *files, const int *cnt, int *sel,
               win_t *win)
 {
 	int len;
@@ -169,7 +169,8 @@ void tns_init(tns_t *tns, const fileinfo_t *files, const int *cnt, int *sel,
 	}
 	tns->files = files;
 	tns->cnt = cnt;
-	tns->loadnext = tns->first = tns->end = tns->r_first = tns->r_end = 0;
+	tns->initnext = tns->loadnext = 0;
+	tns->first = tns->end = tns->r_first = tns->r_end = 0;
 	tns->sel = sel;
 	tns->win = win;
 	tns->dirty = false;
@@ -237,7 +238,7 @@ Imlib_Image tns_scale_down(Imlib_Image im, int dim)
 	return im;
 }
 
-bool tns_load(tns_t *tns, int n, bool force)
+bool tns_load(tns_t *tns, int n, bool force, bool cache_only)
 {
 	int w, h;
 	int maxwh = thumb_sizes[ARRLEN(thumb_sizes)-1];
@@ -245,8 +246,8 @@ bool tns_load(tns_t *tns, int n, bool force)
 	char *cfile;
 	float zw, zh;
 	thumb_t *t;
+	fileinfo_t *file;
 	Imlib_Image im = NULL;
-	const fileinfo_t *file;
 
 	if (tns == NULL || tns->thumbs == NULL)
 		return false;
@@ -261,6 +262,7 @@ bool tns_load(tns_t *tns, int n, bool force)
 	if (t->im != NULL) {
 		imlib_context_set_image(t->im);
 		imlib_free_image();
+		t->im = NULL;
 	}
 
 	if (!force) {
@@ -341,14 +343,14 @@ bool tns_load(tns_t *tns, int n, bool force)
 	if (im == NULL && (access(file->path, R_OK) < 0 ||
 	    (im = imlib_load_image(file->path)) == NULL))
 	{
-		if (file->warn)
+		if (file->flags & FF_WARN)
 			warn("could not open image: %s", file->name);
 		return false;
 	}
+	imlib_context_set_image(im);
 
 	if (!cache_hit) {
 #if HAVE_LIBEXIF
-		imlib_context_set_image(im);
 		exif_auto_orientate(file);
 #endif
 		im = tns_scale_down(im, maxwh);
@@ -357,12 +359,22 @@ bool tns_load(tns_t *tns, int n, bool force)
 			tns_cache_write(im, file->path, true);
 	}
 
-	t->im = tns_scale_down(im, thumb_sizes[tns->zl]);
-	imlib_context_set_image(t->im);
-	t->w = imlib_image_get_width();
-	t->h = imlib_image_get_height();
+	if (cache_only) {
+		imlib_free_image_and_decache();
+	} else {
+		t->im = tns_scale_down(im, thumb_sizes[tns->zl]);
+		imlib_context_set_image(t->im);
+		t->w = imlib_image_get_width();
+		t->h = imlib_image_get_height();
+		tns->dirty = true;
+	}
+	file->flags |= FF_TN_INIT;
 
-	tns->dirty = true;
+	if (n == tns->initnext)
+		while (++tns->initnext < *tns->cnt && ((++file)->flags & FF_TN_INIT));
+	if (n == tns->loadnext && !cache_only)
+		while (++tns->loadnext < tns->end && (++t)->im != NULL);
+
 	return true;
 }
 
@@ -461,7 +473,7 @@ void tns_render(tns_t *tns)
 			t->y = y + (thumb_sizes[tns->zl] - t->h) / 2;
 			imlib_context_set_image(t->im);
 			imlib_render_image_on_drawable_at_size(t->x, t->y, t->w, t->h);
-			if (tns->files[i].marked)
+			if (tns->files[i].flags & FF_MARK)
 				tns_mark(tns, i, true);
 		} else {
 			tns->loadnext = MIN(tns->loadnext, i);
@@ -520,7 +532,7 @@ void tns_highlight(tns_t *tns, int n, bool hl)
 		win_draw_rect(win, t->x - oxy, t->y - oxy, t->w + owh, t->h + owh,
 		              false, tns->bw, col);
 
-		if (tns->files[n].marked)
+		if (tns->files[n].flags & FF_MARK)
 			tns_mark(tns, n, true);
 	}
 }

@@ -360,7 +360,8 @@ bool img_load(img_t *img, const fileinfo_t *file)
 	}
 
 #if HAVE_CMS
-	img_apply_cms(file);
+	if (!options->native_colors)
+		img_apply_cms(file);
 #endif
 
 	img->w = imlib_image_get_width();

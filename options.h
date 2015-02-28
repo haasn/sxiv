@@ -37,6 +37,7 @@ typedef struct {
 	bool animate;
 	int gamma;
 	int slideshow;
+	bool native_colors;
 
 	/* window: */
 	bool fullscreen;

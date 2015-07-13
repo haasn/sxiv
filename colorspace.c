@@ -98,7 +98,6 @@ cmsHPROFILE img_get_colorspace(const fileinfo_t *file) {
 	int fd, len;
 	struct stat sb;
 	const char *data;
-	fd = open(file->path, O_RDONLY);
 
 	if ((fd = open(file->path, O_RDONLY)) == -1 ||
 	    fstat(fd, &sb) == -1 ||
